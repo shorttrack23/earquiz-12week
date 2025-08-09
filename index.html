@@ -1,0 +1,475 @@
+<!-- PWA 연결 -->
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#111111">
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+  }
+</script>
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>절대음감 퀴즈 v3.2 (프라이밍 표기, 확장 옥타브, 음량 보정)</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; margin:16px; }
+  h1 { font-size:18px; margin:0 0 8px; }
+  .row { margin: 8px 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  label { font-size:14px; color:#333; }
+  button, select { font-size:15px; padding:9px 12px; }
+  input[type="checkbox"], input[type="range"] { transform: translateY(1px); }
+  #keys { display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; margin-top:8px; }
+  .key { padding:12px 8px; background:#f7f7f7; border:1px solid #ddd; border-radius:8px; }
+  #msg { margin-top:8px; font-weight:600; }
+  #primeSeq { margin-top:4px; font-size:13px; color:#444; }
+  #score, #rt, #audioState { margin-top:4px; color:#555; font-size:14px; }
+  .hint { font-size:13px; color:#666; }
+  .sep { height:1px; background:#eee; margin:10px 0; }
+  .badge { font-size:12px; padding:2px 6px; border-radius:6px; background:#eef; color:#224; }
+</style>
+</head>
+<body>
+<h1>절대음감 퀴즈 v3.2</h1>
+
+<!-- 주차/요일 -->
+<div class="row">
+  <label for="week">주차:</label>
+  <select id="week">
+    <option value="1">1주 (A4, D4)</option>
+    <option value="2">2주 (A4, D4, C4, F#4)</option>
+    <option value="3">3주 (+E4, G#4)</option>
+    <option value="4">4주 (+B4, F4)</option>
+    <option value="5">5주 (+C#4, G4)</option>
+    <option value="6">6주 (12음 완성)</option>
+    <option value="7">7주 (12음, 스피드)</option>
+    <option value="8">8주 (12음, 옥타브 일반화)</option>
+    <option value="9">9주 (12음, 옥타브 확장)</option>
+    <option value="10">10주 (12음, 무피드백/간섭)</option>
+    <option value="11">11주 (12음, 혼동쌍 정리)</option>
+    <option value="12">12주 (종합 평가)</option>
+  </select>
+
+  <label for="day">요일:</label>
+  <select id="day">
+    <option value="1">Day 1</option>
+    <option value="2">Day 2</option>
+    <option value="3">Day 3</option>
+    <option value="4">Day 4</option>
+    <option value="5">Day 5</option>
+    <option value="6">Day 6</option>
+    <option value="7">Day 7(평가)</option>
+  </select>
+
+  <span id="dayTip" class="badge">오늘 포커스: 안정화</span>
+</div>
+
+<!-- 오디오/사운드 -->
+<div class="row">
+  <button id="btnUnlock">오디오 활성화</button>
+  <button id="btnTest">사운드 테스트</button>
+  <label>볼륨
+    <input id="vol" type="range" min="0" max="100" value="30">
+  </label>
+  <label>파형
+    <select id="wave">
+      <option value="sine" selected>사인</option>
+      <option value="square">사각</option>
+      <option value="triangle">삼각</option>
+    </select>
+  </label>
+  <label>옥타브
+    <select id="oct">
+      <option value="4">고정 4</option>
+      <option value="3-5">랜덤 3–5</option>
+      <option value="2-5">랜덤 2–5</option>
+      <option value="2-6">랜덤 2–6</option>
+    </select>
+  </label>
+</div>
+
+<!-- 가중치/보정 -->
+<div class="row">
+  <label><input type="checkbox" id="autoNewBoost" checked> 신규음 가중치(1~6주)</label>
+  <label>강도:
+    <select id="boostLevel">
+      <option value="1.5">보통(×1.5)</option>
+      <option value="2" selected>강함(×2)</option>
+      <option value="3">매우 강함(×3)</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="errorBoost"> 오답 음 가중치</label>
+</div>
+
+<!-- 옥타브 음량 보정 -->
+<div class="row">
+  <label><input type="checkbox" id="octNormalize" checked> 옥타브 음량 보정</label>
+  <label>보정 강도:
+    <select id="normStrength">
+      <option value="0.5">약</option>
+      <option value="1" selected>보통</option>
+      <option value="1.5">강</option>
+    </select>
+  </label>
+</div>
+
+<!-- 실행 -->
+<div class="row">
+  <button id="btnPrime">프라이밍(5회)</button>
+  <button id="btnOne">한 문제</button>
+  <button id="btnStart20">20문항 시작</button>
+  <button id="btnStart20NF">무피드백 20문항</button>
+  <button id="btnRepeat" disabled>방금 음 다시</button>
+  <button id="btnReview" disabled>오답 3개 복습</button>
+</div>
+
+<div id="keys" class="row"></div>
+
+<div id="msg"></div>
+<div id="primeSeq"></div>
+<div id="score"></div>
+<div id="rt"></div>
+<div id="audioState"></div>
+<div class="sep"></div>
+<div class="hint">Tip: 아침·점심·저녁 각 10분. “프라이밍 → 20문항 → 점수 → 오답 3개 복습”. 7~12주는 옥타브를 랜덤으로 켜서 일반화해 보세요.</div>
+
+<script>
+/* ====== 기본 데이터 ====== */
+const noteOrder = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const baseFreq4 = {
+  "C":261.6256,"C#":277.1826,"D":293.6648,"D#":311.1270,"E":329.6276,
+  "F":349.2282,"F#":369.9944,"G":391.9954,"G#":415.3047,"A":440.0000,
+  "A#":466.1638,"B":493.8833
+};
+const weeks = {
+  1:["A","D"],
+  2:["A","D","C","F#"],
+  3:["A","D","C","F#","E","G#"],
+  4:["A","D","C","F#","E","G#","B","F"],
+  5:["A","D","C","F#","E","G#","B","F","C#","G"],
+  6:["A","D","C","F#","E","G#","B","F","C#","G","D#","A#"],
+  7:["A","D","C","F#","E","G#","B","F","C#","G","D#","A#"],
+  8:["A","D","C","F#","E","G#","B","F","C#","G","D#","A#"],
+  9:["A","D","C","F#","E","G#","B","F","C#","G","D#","A#"],
+  10:["A","D","C","F#","E","G#","B","F","C#","G","D#","A#"],
+  11:["A","D","C","F#","E","G#","B","F","C#","G","D#","A#"],
+  12:["A","D","C","F#","E","G#","B","F","C#","G","D#","A#"]
+};
+const newByWeek = { 1:["A","D"], 2:["C","F#"], 3:["E","G#"], 4:["B","F"], 5:["C#","G"], 6:["D#","A#"] };
+const dayFocus = {
+  1:"안정화(신규음 맛보기)", 2:"신규음 비중↑", 3:"스피드(첫 느낌 2초)",
+  4:"라이트 테스트", 5:"혼동쌍 정리", 6:"변형 시작", 7:"평가(무피드백)"
+};
+
+/* ====== 오디오 ====== */
+let audioCtx=null, masterGain=null, unlocked=false;
+function updateAudioState(){ document.getElementById("audioState").textContent = `오디오 상태: ${audioCtx? audioCtx.state : "uninitialized"}`; }
+function ensureAudio(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = document.getElementById("vol").value/100 * 0.8;
+    masterGain.connect(audioCtx.destination);
+  }
+  if(audioCtx.state!=="running"){
+    audioCtx.resume().then(updateAudioState);
+  } else { updateAudioState(); }
+}
+function setMasterVolume(){
+  if(!masterGain || !audioCtx) return;
+  const v = document.getElementById("vol").value/100 * 0.8;
+  masterGain.gain.setTargetAtTime(v, audioCtx.currentTime, 0.01);
+}
+
+/* 옥타브별 음량 보정 기본 맵(저옥타브 ↑, 고옥타브 ↓) */
+function octaveBaseComp(oct){
+  // 2: +20%, 3: +8%, 4: 기본, 5: -8%, 6: -14%
+  const map = {2:1.20, 3:1.08, 4:1.00, 5:0.92, 6:0.86};
+  return map[oct] ?? 1.0;
+}
+function octaveCompensation(oct){
+  if(!document.getElementById("octNormalize").checked) return 1.0;
+  const s = Number(document.getElementById("normStrength").value); // 0.5/1/1.5
+  // 강도 조절: base^s (s=1 기본, 0.5 약화, 1.5 강화)
+  const base = octaveBaseComp(oct);
+  return Math.pow(base, s);
+}
+
+function freqFor(base, oct){
+  const f4 = baseFreq4[base]; if(!f4) return null;
+  return f4 * Math.pow(2, oct-4);
+}
+
+function parseOctRange(){
+  const v = document.getElementById("oct").value;
+  if(v==="4") return [4,4];
+  const [a,b] = v.split("-").map(Number);
+  return [Math.min(a,b), Math.max(a,b)];
+}
+function pickOct(){
+  const [lo, hi] = parseOctRange();
+  const span = hi - lo + 1;
+  return lo + Math.floor(Math.random()*span);
+}
+
+function playNoteBase(base, oct, dur=1.0){
+  ensureAudio();
+  const ac = audioCtx, t0 = ac.currentTime;
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  const wave = document.getElementById("wave").value;
+
+  // 어택/릴리즈 + 옥타브 보정 이득 적용
+  const a=0.01, r=0.08, comp = octaveCompensation(oct);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(comp, t0+a);
+  g.gain.setValueAtTime(comp, t0 + Math.max(a, dur-r));
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+  osc.type = wave;
+  osc.frequency.value = freqFor(base, oct);
+  osc.connect(g).connect(masterGain);
+  osc.start(t0); osc.stop(t0 + dur + 0.02);
+}
+
+/* ====== 상태/유틸 ====== */
+let currentNote=null; // "A4"
+let in20=false, noFB=false;
+let q=0, okCnt=0, wrongCounts={}, rts=[], qStart=null, timer=null, reviewQ=null;
+
+const noteOrderFull = noteOrder.slice(); // 버튼 생성용
+function baseName(full){ return full.replace(/[0-9]/g,""); }
+function choice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function pickWeighted(list, weightMap){
+  const bag=[]; list.forEach(n=>{
+    const w=Math.max(1, weightMap[n]||1);
+    for(let i=0;i<w;i++) bag.push(n);
+  });
+  return choice(bag);
+}
+function msg(txt, good=null){
+  const m=document.getElementById("msg");
+  m.textContent=txt; m.style.color = good===true? "#0a8" : good===false? "#d33" : "#222";
+}
+function drawScore(){
+  document.getElementById("score").textContent = in20? `진행: ${q}/20, 정답: ${okCnt}` : "";
+  if(rts.length>0){
+    const avg = (rts.reduce((a,b)=>a+b,0)/rts.length)/1000;
+    document.getElementById("rt").textContent = `평균 반응시간: ${avg.toFixed(2)}초`;
+  } else document.getElementById("rt").textContent="";
+}
+function weekVal(){ return Number(document.getElementById("week").value); }
+function dayVal(){ return Number(document.getElementById("day").value); }
+function updateDayTip(){
+  const map = {
+    1:"안정화(신규음 맛보기)",2:"신규음 비중↑",3:"스피드(첫 느낌 2초)",
+    4:"라이트 테스트",5:"혼동쌍 정리",6:"변형 시작",7:"평가(무피드백)"
+  };
+  document.getElementById("dayTip").textContent = `오늘 포커스: ${map[dayVal()]||"안정화"}`;
+}
+
+/* ====== 가중치 ====== */
+function buildWeights(){
+  const w=weekVal(), d=dayVal(), pool=weeks[w], weights={};
+  if(w<=6 && document.getElementById("autoNewBoost").checked){
+    const mult=Number(document.getElementById("boostLevel").value);
+    (newByWeek[w]||[]).forEach(n=> weights[n]=(weights[n]||1)*mult);
+    if(d===2) (newByWeek[w]||[]).forEach(n=> weights[n]=(weights[n]||1)*1.2);
+  }
+  if(document.getElementById("errorBoost").checked){
+    const last = JSON.parse(localStorage.getItem("aeq_lastWrongCounts")||"{}");
+    const pairs = Object.entries(last).sort((a,b)=>b[1]-a[1]).slice(0,2);
+    pairs.forEach(([full,cnt])=>{
+      const nb=baseName(full);
+      if(pool.includes(nb)) weights[nb]=(weights[nb]||1)+Math.min(2, Math.ceil(cnt/2));
+    });
+  }
+  return weights;
+}
+
+/* ====== 출제/세션 ====== */
+function nextQ(autoPlay=true){
+  const w=weekVal(), d=dayVal(), pool=weeks[w], weights=buildWeights();
+  let nb, oc=pickOct();
+
+  // Day6: 앞 3문항은 직전 오답 상위 우선(있을 때)
+  if(in20 && q<3 && d===6){
+    const last = JSON.parse(localStorage.getItem("aeq_lastWrongCounts")||"{}");
+    const top = Object.entries(last)
+      .map(([full,c])=>({ nb: baseName(full), c }))
+      .filter(x=> pool.includes(x.nb))
+      .sort((a,b)=> b.c - a.c);
+    nb = (top[q] && top[q].nb) ? top[q].nb : pickWeighted(pool, weights);
+  } else {
+    nb = pickWeighted(pool, weights);
+  }
+
+  currentNote = nb + String(oc);
+  msg("문제를 듣고 정답을 선택하세요.");
+  document.getElementById("btnRepeat").disabled=false;
+
+  if(autoPlay){
+    playNoteBase(nb, oc, 1.0);
+    qStart = performance.now();
+  }
+}
+
+function start20(nf=false){
+  in20=true; noFB=!!nf;
+  q=0; okCnt=0; wrongCounts={}; rts=[];
+  drawScore(); document.getElementById("btnReview").disabled=true;
+  nextQ(true);
+}
+
+function answer(ansBase){
+  if(!currentNote) return;
+  const now = performance.now();
+  if(qStart) rts.push(now - qStart);
+
+  const isOK = (ansBase === baseName(currentNote));
+  if(!isOK) wrongCounts[currentNote] = (wrongCounts[currentNote]||0)+1;
+  if(isOK) okCnt++;
+  q++; drawScore();
+
+  if(in20){
+    if(!noFB){ msg(isOK? `정답! (${currentNote})` : `오답… 정답은 ${currentNote}`, isOK); }
+    else { msg(`응답 저장됨 (${q}/20)`); }
+    if(timer) clearTimeout(timer);
+    if(q>=20){
+      in20=false;
+      localStorage.setItem("aeq_lastWrongCounts", JSON.stringify(wrongCounts));
+      endSummary();
+    } else {
+      timer = setTimeout(()=> nextQ(true), 700);
+    }
+  } else if(reviewQ){
+    msg(isOK? `정답! (${currentNote})` : `오답… 정답은 ${currentNote}`, isOK);
+    if(reviewQ.length===0){
+      document.getElementById("btnReview").disabled=false;
+      msg("복습 종료! 가볍게 마무리하세요.");
+      reviewQ=null;
+    } else {
+      setTimeout(()=>{
+        currentNote = reviewQ.shift();
+        playNoteBase(baseName(currentNote), Number(currentNote.match(/[0-9]/)[0]), 1.0);
+        qStart = performance.now();
+      }, 650);
+    }
+  } else {
+    msg(isOK? `정답! (${currentNote})` : `오답… 정답은 ${currentNote}`, isOK);
+  }
+}
+
+function endSummary(){
+  document.getElementById("btnRepeat").disabled=true;
+  const keys = Object.keys(wrongCounts);
+  const top3 = keys.sort((a,b)=> (wrongCounts[b]||0)-(wrongCounts[a]||0)).slice(0,3);
+  const txt = top3.length ? ` | 오답 Top3: ${top3.join(", ")}` : "";
+  msg(`세션 종료: 정답 ${okCnt}/20${txt}`);
+  drawScore();
+  document.getElementById("btnReview").disabled = top3.length===0;
+}
+
+/* ====== 복습(오답 3개) ====== */
+function startReview(){
+  const keys = Object.keys(wrongCounts);
+  const top3 = keys.sort((a,b)=> (wrongCounts[b]||0)-(wrongCounts[a]||0)).slice(0,3);
+  if(top3.length===0){ msg("복습할 항목이 없습니다."); return; }
+  const qarr=[];
+  top3.forEach(n=>{ for(let i=0;i<3;i++) qarr.push(n); });
+  for(let i=qarr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [qarr[i],qarr[j]]=[qarr[j],qarr[i]]; }
+  reviewQ=qarr;
+  msg("오답 복습 시작(9문항).");
+  document.getElementById("btnReview").disabled=true;
+  currentNote = reviewQ.shift();
+  playNoteBase(baseName(currentNote), Number(currentNote.match(/[0-9]/)[0]), 1.0);
+  qStart = performance.now();
+}
+
+/* ====== UI ====== */
+function buildKeys(){
+  const wrap=document.getElementById("keys"); wrap.innerHTML="";
+  noteOrderFull.forEach(n=>{
+    const b=document.createElement("button");
+    b.className="key"; b.textContent=n;
+    b.addEventListener("click", ()=> answer(n));
+    wrap.appendChild(b);
+  });
+}
+
+/* ====== 프라이밍(표기 포함) ====== */
+function doPriming(){
+  const w=weekVal(), pool=weeks[w];
+  // A, A, (주차 첫 음), (주차 두 번째 음 or A), A
+  const seqBase = ["A", "A", pool[0], pool[Math.min(1,pool.length-1)], "A"];
+  const show = []; let i=0;
+  msg("프라이밍 중…");
+  document.getElementById("primeSeq").textContent = "";
+
+  function step(){
+    if(i>=seqBase.length){ msg("프라이밍 완료"); return; }
+    const nb = seqBase[i];
+    const oc = pickOct();
+    const label = `${nb}${oc}`;
+    show.push(label);
+    document.getElementById("primeSeq").textContent = `프라이밍 진행: ${show.join(" → ")}`;
+    playNoteBase(nb, oc, 1.0);
+    i++; setTimeout(step, 1500);
+  }
+  step();
+}
+
+/* ====== 초기화 ====== */
+window.addEventListener("load", ()=>{
+  document.getElementById("week").value="1";
+  document.getElementById("day").value="1";
+  document.getElementById("oct").value="4";
+  buildKeys(); updateDayTip(); updateAudioState();
+
+  // 오디오 활성화/테스트
+  document.getElementById("btnUnlock").addEventListener("click", ()=>{ ensureAudio(); unlocked=true; msg("오디오 활성화 완료!"); });
+  document.body.addEventListener("pointerdown", ()=>{ if(!unlocked){ ensureAudio(); unlocked=true; } }, { once:true });
+  document.getElementById("btnTest").addEventListener("click", ()=>{
+    ensureAudio();
+    const [lo,hi]=parseOctRange();
+    const oc = Math.min(4, hi); // 테스트는 중간 옥타브 위주
+    const seq=["A","C#","E","A"]; let i=0; msg("사운드 테스트 중…");
+    function step(){ if(i>=seq.length){ msg("테스트 완료. 시작해 보세요!"); return; }
+      playNoteBase(seq[i], oc, 0.4); i++; setTimeout(step, 550); }
+    step();
+  });
+
+  // 컨트롤
+  document.getElementById("vol").addEventListener("input", ()=>{ ensureAudio(); setMasterVolume(); });
+  document.getElementById("wave").addEventListener("change", ()=> msg("파형 변경. 더 잘 들리는 걸로 선택해 보세요."));
+  document.getElementById("oct").addEventListener("change", ()=> msg("옥타브 범위 변경됨."));
+  document.getElementById("week").addEventListener("change", ()=>{
+    msg("주차 변경됨."); if(Number(document.getElementById("week").value)>=8 && document.getElementById("oct").value==="4"){ document.getElementById("oct").value="3-5"; }
+  });
+  document.getElementById("day").addEventListener("change", updateDayTip);
+  document.getElementById("autoNewBoost").addEventListener("change", ()=> msg("신규음 가중치 설정 변경."));
+  document.getElementById("boostLevel").addEventListener("change", ()=> msg("가중치 강도 변경."));
+  document.getElementById("errorBoost").addEventListener("change", ()=> msg("오답 가중치 설정 변경."));
+  document.getElementById("octNormalize").addEventListener("change", ()=> msg("옥타브 음량 보정 설정 변경."));
+  document.getElementById("normStrength").addEventListener("change", ()=> msg("보정 강도 변경."));
+
+  // 실행
+  document.getElementById("btnPrime").addEventListener("click", doPriming);
+  document.getElementById("btnOne").addEventListener("click", ()=>{
+    in20=false; noFB=false; q=0; okCnt=0; wrongCounts={}; rts=[]; drawScore(); document.getElementById("btnReview").disabled=true;
+    document.getElementById("primeSeq").textContent = "";
+    nextQ(true);
+  });
+  document.getElementById("btnStart20").addEventListener("click", ()=>{ document.getElementById("primeSeq").textContent = ""; start20(false); });
+  document.getElementById("btnStart20NF").addEventListener("click", ()=>{ document.getElementById("primeSeq").textContent = ""; start20(true); });
+  document.getElementById("btnRepeat").addEventListener("click", ()=>{
+    if(currentNote){ playNoteBase(baseName(currentNote), Number(currentNote.match(/[0-9]/)[0]), 1.0); qStart = performance.now(); }
+  });
+  document.getElementById("btnReview").addEventListener("click", startReview);
+});
+</script>
+</body>
+</html>
