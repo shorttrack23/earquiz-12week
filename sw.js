@@ -1,4 +1,4 @@
-const CACHE = "aeq-v1";
+const CACHE = "aeq-v3.5.1";
 const ASSETS = [
   "./",
   "./index.html",
@@ -34,4 +34,5 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     caches.match(req).then(r => r || fetch(req))
   );
+
 });
